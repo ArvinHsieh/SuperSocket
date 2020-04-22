@@ -7,6 +7,7 @@ using SuperSocket.Channel;
 using SuperSocket.ProtoBase;
 using Microsoft.Extensions.Logging;
 using System.Threading;
+using System.IO;
 
 namespace SuperSocket.Client
 {
@@ -51,6 +52,14 @@ namespace SuperSocket.Client
 
         public event PackageHandler<TReceivePackage> PackageHandler;
 
+        public bool IsConnected
+        {
+            get
+            {
+                return !Channel?.IsClosed ?? false;
+            }
+        }
+
         protected EasyClient()
         {
 
@@ -82,10 +91,15 @@ namespace SuperSocket.Client
 
         ValueTask<bool> IEasyClient<TReceivePackage>.ConnectAsync(EndPoint remoteEndPoint, CancellationToken cancellationToken)
         {
-            return ConnectAsync(remoteEndPoint, cancellationToken);
+            return ConnectAsync(remoteEndPoint, default, cancellationToken);
         }
 
-        protected virtual async ValueTask<bool> ConnectAsync(EndPoint remoteEndPoint, CancellationToken cancellationToken)
+        ValueTask<bool> IEasyClient<TReceivePackage>.ConnectAsync(EndPoint remoteEndPoint, ChannelOptions options, CancellationToken cancellationToken)
+        {
+            return ConnectAsync(remoteEndPoint, options, cancellationToken);
+        }
+
+        protected virtual async ValueTask<bool> ConnectAsync(EndPoint remoteEndPoint, ChannelOptions options, CancellationToken cancellationToken)
         {
             var connector = GetConntector();
             var state = await connector.ConnectAsync(remoteEndPoint, null, cancellationToken);
@@ -108,6 +122,14 @@ namespace SuperSocket.Client
                 throw new Exception("Socket is null.");
 
             var channelOptions = GetChannelOptions();
+            if (options != null)
+            {
+                channelOptions.MaxPackageLength = options.MaxPackageLength;
+                channelOptions.ReceiveBufferSize = options.ReceiveBufferSize;
+                channelOptions.ReceiveTimeout = options.ReceiveTimeout;
+                channelOptions.SendBufferSize = options.SendBufferSize;
+                channelOptions.SendTimeout = options.SendTimeout;
+            }
             SetupChannel(state.CreateChannel<TReceivePackage>(_pipelineFilter, channelOptions));
             return true;
         }
@@ -188,7 +210,7 @@ namespace SuperSocket.Client
 
             if (handler != null)
             {
-                if (Interlocked.CompareExchange(ref Closed, null, handler) == handler)
+                if (Interlocked.CompareExchange(ref Closed, handler, handler) == handler)
                 {
                     handler.Invoke(sender, e);
                 }
@@ -197,6 +219,8 @@ namespace SuperSocket.Client
 
         protected virtual void OnError(string message, Exception exception)
         {
+            Error?.Invoke(this, new ErrorEventArgs(exception));
+
             Logger?.LogError(exception, message);
         }
 
@@ -221,6 +245,10 @@ namespace SuperSocket.Client
         }
 
         public event EventHandler Closed;
+
+        public event EventHandler Connected;
+
+        public event EventHandler<ErrorEventArgs> Error;
 
         public virtual async ValueTask CloseAsync()
         {

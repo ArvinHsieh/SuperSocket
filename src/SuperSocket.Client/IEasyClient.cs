@@ -1,7 +1,9 @@
 using System;
+using System.IO;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using SuperSocket.Channel;
 using SuperSocket.ProtoBase;
 
 namespace SuperSocket.Client
@@ -18,6 +20,8 @@ namespace SuperSocket.Client
     {
         ValueTask<bool> ConnectAsync(EndPoint remoteEndPoint, CancellationToken cancellationToken = default);
 
+        ValueTask<bool> ConnectAsync(EndPoint remoteEndPoint, ChannelOptions options = default, CancellationToken cancellationToken = default);
+
         ValueTask<TReceivePackage> ReceiveAsync();
 
         void StartReceive();
@@ -26,7 +30,13 @@ namespace SuperSocket.Client
 
         ValueTask SendAsync<TSendPackage>(IPackageEncoder<TSendPackage> packageEncoder, TSendPackage package);
 
+        bool IsConnected { get; }
+
         event EventHandler Closed;
+
+        event EventHandler Connected;
+
+        event EventHandler<ErrorEventArgs> Error;
 
         event PackageHandler<TReceivePackage> PackageHandler;
 
