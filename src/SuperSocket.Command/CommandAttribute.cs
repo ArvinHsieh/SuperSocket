@@ -24,5 +24,13 @@ namespace SuperSocket.Command
         {
             Key = key;
         }
+        
+        public CommandAttribute(object enumType)
+        {
+            if (Enum.TryParse(enumType.GetType(), enumType.ToString(), out object command))
+            {
+                this.Name = ((int)command).ToString();
+            }
+        }
     }
 }
