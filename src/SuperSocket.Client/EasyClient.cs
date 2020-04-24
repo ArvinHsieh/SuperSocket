@@ -133,6 +133,17 @@ namespace SuperSocket.Client
                 channelOptions.SendTimeout = options.SendTimeout;
             }
             SetupChannel(state.CreateChannel<TReceivePackage>(_pipelineFilter, channelOptions));
+			
+			var handler = Connected;
+
+            if (handler != null)
+            {
+                if (Interlocked.CompareExchange(ref Connected, handler, handler) == handler)
+                {
+                    handler.Invoke(this, new EventArgs());
+                }
+            }
+			
             return true;
         }
 
