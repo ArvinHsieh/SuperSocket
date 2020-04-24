@@ -198,7 +198,7 @@ namespace SuperSocket.WebSocket.Server
 
             if (handshakeValidator != null)
             {
-                if (!await handshakeValidator(session, p))
+                if (!await handshakeValidator(session as WebSocketSession, p))
                     return false;
             }
 
