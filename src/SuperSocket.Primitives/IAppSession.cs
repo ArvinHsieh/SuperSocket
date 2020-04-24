@@ -19,6 +19,8 @@ namespace SuperSocket
 
         EndPoint RemoteEndPoint { get; }
 
+        string RemoteHostName { get; set; }
+
         EndPoint LocalEndPoint { get; }
 
         ValueTask SendAsync(ReadOnlyMemory<byte> data);

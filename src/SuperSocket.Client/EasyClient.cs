@@ -91,11 +91,13 @@ namespace SuperSocket.Client
 
         ValueTask<bool> IEasyClient<TReceivePackage>.ConnectAsync(EndPoint remoteEndPoint, CancellationToken cancellationToken)
         {
+            this.RemoteEndPoint = remoteEndPoint;
             return ConnectAsync(remoteEndPoint, default, cancellationToken);
         }
 
         ValueTask<bool> IEasyClient<TReceivePackage>.ConnectAsync(EndPoint remoteEndPoint, ChannelOptions options, CancellationToken cancellationToken)
         {
+            this.RemoteEndPoint = remoteEndPoint;
             return ConnectAsync(remoteEndPoint, options, cancellationToken);
         }
 
@@ -249,6 +251,8 @@ namespace SuperSocket.Client
         public event EventHandler Connected;
 
         public event EventHandler<ErrorEventArgs> Error;
+
+        public EndPoint RemoteEndPoint { get; private set; }
 
         public virtual async ValueTask CloseAsync()
         {

@@ -43,6 +43,8 @@ namespace SuperSocket.Server
 
         public object DataContext { get; set; }
 
+        public string RemoteHostName { get; set; }
+
         public EndPoint RemoteEndPoint
         {
             get { return _channel?.RemoteEndPoint; }

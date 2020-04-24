@@ -32,6 +32,8 @@ namespace SuperSocket.Client
 
         bool IsConnected { get; }
 
+        EndPoint RemoteEndPoint { get; }
+
         event EventHandler Closed;
 
         event EventHandler Connected;
