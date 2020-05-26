@@ -14,7 +14,6 @@ using SuperSocket.ProtoBase;
 namespace SuperSocket.Channel
 {
     public abstract partial class PipeChannel<TPackageInfo> : ChannelBase<TPackageInfo>, IChannel<TPackageInfo>, IChannel, IPipeChannel
-        where TPackageInfo : class
     {
         private IPipelineFilter<TPackageInfo> _pipelineFilter;
 
@@ -131,8 +130,8 @@ namespace SuperSocket.Channel
                     var bufferSize = options.ReceiveBufferSize;
                     var maxPackageLength = options.MaxPackageLength;
 
-                    if (maxPackageLength > 0)
-                        bufferSize = Math.Min(bufferSize, maxPackageLength);
+                    if (bufferSize <= 0)
+                        bufferSize = 1024 * 4; //4k
 
                     var memory = writer.GetMemory(bufferSize);
 
@@ -220,6 +219,7 @@ namespace SuperSocket.Channel
                     catch (Exception e)
                     {
                         output.Complete(e);
+                        cts.Cancel(false);
                         
                         if (!IsIgnorableException(e))
                             OnError("Exception happened in SendAsync", e);
@@ -373,7 +373,7 @@ namespace SuperSocket.Channel
 
         private void WriteEOFPackage()
         {
-            _packagePipe.Write(null);
+            _packagePipe.Write(default);
         }
 
         private bool ReaderBuffer(ref ReadOnlySequence<byte> buffer, out SequencePosition consumed, out SequencePosition examined)
