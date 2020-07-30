@@ -15,6 +15,7 @@
     <ProjectReference Include="../Command/Command.csproj" />
   </ItemGroup>
   <ItemGroup>  
+    <PackageReference Include="Autofac.Extensions.DependencyInjection" Version="6.0.0" />  
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="$(MSExtensionsVersion)" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="$(MSExtensionsVersion)" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="$(MSExtensionsVersion)" />
@@ -27,6 +28,12 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="..\..\assets\supersocket.pfx">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Config\multiple_server.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

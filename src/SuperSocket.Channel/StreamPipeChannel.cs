@@ -25,7 +25,6 @@ namespace SuperSocket.Channel
             _stream = stream;
             RemoteEndPoint = remoteEndPoint;
             LocalEndPoint = localEndPoint;
-            StartTasks();
         }
 
         protected override void Close()
@@ -55,7 +54,7 @@ namespace SuperSocket.Channel
                 total += data.Length;
             }
 
-            await _stream.FlushAsync();
+            await _stream.FlushAsync(cancellationToken);
             return total;
         }
 

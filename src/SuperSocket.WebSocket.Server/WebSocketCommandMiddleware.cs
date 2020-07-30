@@ -22,5 +22,11 @@ namespace SuperSocket.WebSocket.Server
         {
             
         }
+
+        public WebSocketCommandMiddleware(IServiceProvider serviceProvider, IOptions<CommandOptions> commandOptions, IPackageMapper<WebSocketPackage, TPackageInfo> mapper)
+            : base(serviceProvider, commandOptions, mapper)
+        {
+
+        }
     }
 }

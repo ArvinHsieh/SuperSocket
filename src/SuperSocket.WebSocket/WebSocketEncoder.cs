@@ -35,11 +35,14 @@ namespace SuperSocket.WebSocket
 
                 for (int i = 9; i > 1; i--)
                 {
+                    if (left == 0)
+                    {
+                        head[i] = 0;
+                        continue;
+                    }
+
                     head[i] = (byte)(left % unit);
                     left = left / unit;
-
-                    if (left == 0)
-                        break;
                 }
 
                 return 10;
@@ -141,7 +144,7 @@ namespace SuperSocket.WebSocket
 
             if (headLen == 0)
             {
-                if (minSize < _size0 || maxSize >= _size0)
+                if (minSize < _size0 && maxSize >= _size0)
                 {
                     headLen =  2;
                     fragmentSize = _size0 - 1;

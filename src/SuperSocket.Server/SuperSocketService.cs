@@ -39,8 +39,7 @@ namespace SuperSocket.Server
         private IPipelineFilterFactory<TReceivePackageInfo> _pipelineFilterFactory;
         private IChannelCreatorFactory _channelCreatorFactory;
         private List<IChannelCreator> _channelCreators;
-        private IPackageHandler<TReceivePackageInfo> _packageHandler;
-        private Func<IAppSession, PackageHandlingException<TReceivePackageInfo>, ValueTask<bool>> _errorHandler;
+        private IPackageHandlingScheduler<TReceivePackageInfo> _packageHandlingScheduler;
         
         public string Name { get; }
 
@@ -68,32 +67,43 @@ namespace SuperSocket.Server
 
         private SessionHandlers _sessionHandlers;
 
-        public SuperSocketService(IServiceProvider serviceProvider, IOptions<ServerOptions> serverOptions, ILoggerFactory loggerFactory, IChannelCreatorFactory channelCreatorFactory)
+        public SuperSocketService(IServiceProvider serviceProvider, IOptions<ServerOptions> serverOptions)
         {
-            _serverOptions = serverOptions;
+            if (serviceProvider == null)
+                throw new ArgumentNullException(nameof(serviceProvider));
+
+            if (serverOptions == null)
+                throw new ArgumentNullException(nameof(serverOptions));
+
             Name = serverOptions.Value.Name;
+            _serverOptions = serverOptions;
             _serviceProvider = serviceProvider;
             _pipelineFilterFactory = GetPipelineFilterFactory();
-            _loggerFactory = loggerFactory;
+            _loggerFactory = serviceProvider.GetService<ILoggerFactory>();
             _logger = _loggerFactory.CreateLogger("SuperSocketService");
-            _channelCreatorFactory = channelCreatorFactory;
-            _packageHandler = serviceProvider.GetService<IPackageHandler<TReceivePackageInfo>>();
-            _errorHandler = serviceProvider.GetService<Func<IAppSession, PackageHandlingException<TReceivePackageInfo>, ValueTask<bool>>>();
-            _sessionHandlers = serviceProvider.GetService<SessionHandlers>();
-
-            if (_errorHandler == null)
-            {
-                _errorHandler = OnSessionErrorAsync;
-            }
-            
+            _channelCreatorFactory = serviceProvider.GetService<IChannelCreatorFactory>() ?? new TcpChannelCreatorFactory(serviceProvider);
+            _sessionHandlers = serviceProvider.GetService<SessionHandlers>();          
             // initialize session factory
-            _sessionFactory = serviceProvider.GetService<ISessionFactory>();
-
-            if (_sessionFactory == null)
-                _sessionFactory = new DefaultSessionFactory();
-
+            _sessionFactory = serviceProvider.GetService<ISessionFactory>() ?? new DefaultSessionFactory();
 
             InitializeMiddlewares();
+
+            var packageHandler = serviceProvider.GetService<IPackageHandler<TReceivePackageInfo>>()
+                ?? _middlewares.OfType<IPackageHandler<TReceivePackageInfo>>().FirstOrDefault();
+
+            if (packageHandler == null)
+            {
+                Logger.LogWarning("The PackageHandler cannot be found.");
+            }
+            else
+            {
+                var errorHandler = serviceProvider.GetService<Func<IAppSession, PackageHandlingException<TReceivePackageInfo>, ValueTask<bool>>>()
+                ?? OnSessionErrorAsync;
+
+                _packageHandlingScheduler = serviceProvider.GetService<IPackageHandlingScheduler<TReceivePackageInfo>>()
+                    ?? new SerialPackageHandlingScheduler<TReceivePackageInfo>();
+                _packageHandlingScheduler.Initialize(packageHandler, errorHandler);
+            }
         }
 
         private void InitializeMiddlewares()
@@ -106,9 +116,6 @@ namespace SuperSocket.Server
             {
                 m.Start(this);
             }
-
-            if (_packageHandler == null)
-                _packageHandler = _middlewares.OfType<IPackageHandler<TReceivePackageInfo>>().FirstOrDefault();
         }
 
         private void ShutdownMiddlewares()
@@ -162,14 +169,13 @@ namespace SuperSocket.Server
 
                     if (!AddChannelCreator(l, serverOptions))
                     {
-                        _logger.LogError($"Failed to listen {l}.");
                         continue;
                     }
                 }
             }
             else
             {
-                _logger.LogWarning("No listner was defined, so this server only can accept connections from the ActiveConnect.");
+                _logger.LogWarning("No listener was defined, so this server only can accept connections from the ActiveConnect.");
 
                 if (!AddChannelCreator(null, serverOptions))
                 {
@@ -303,27 +309,16 @@ namespace SuperSocket.Server
 
             try
             {
+                channel.Start();
+                
                 await FireSessionConnectedEvent(session);
 
                 var packageChannel = channel as IChannel<TReceivePackageInfo>;
-                var packageHandler = _packageHandler;
+                var packageHandlingScheduler = _packageHandlingScheduler;
 
                 await foreach (var p in packageChannel.RunAsync())
                 {
-                    try
-                    {
-                        if (packageHandler != null)
-                            await packageHandler.Handle(session, p);
-                    }
-                    catch (Exception e)
-                    {
-                        var toClose = await _errorHandler(session, new PackageHandlingException<TReceivePackageInfo>($"Session {session.SessionID} got an error when handle a package.", p, e));
-
-                        if (toClose)
-                        {
-                            session.CloseAsync().DoNotAwait();
-                        }
-                    }                    
+                    await packageHandlingScheduler.HandlePackage(session, p);   
                 }
             }
             catch (Exception e)

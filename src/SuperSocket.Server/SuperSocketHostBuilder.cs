@@ -13,103 +13,117 @@ using SuperSocket.Server;
 
 namespace SuperSocket
 {
-    public class SuperSocketHostBuilder<TReceivePackage> : ISuperSocketHostBuilder<TReceivePackage>, IHostBuilder
+    public class SuperSocketHostBuilder<TReceivePackage> : HostBuilderAdapter<SuperSocketHostBuilder<TReceivePackage>>, ISuperSocketHostBuilder<TReceivePackage>, IHostBuilder
     {
+        private Func<HostBuilderContext, IConfiguration, IConfiguration> _serverOptionsReader;
 
-        private HostBuilder _hostBuilder;
-
-        public SuperSocketHostBuilder()
+        protected List<Action<HostBuilderContext, IServiceCollection>> ConfigureServicesActions { get; private set; } = new List<Action<HostBuilderContext, IServiceCollection>>();
+        
+        protected Action<HostBuilderContext, IServiceCollection> Validator { get; set; }
+        
+        public SuperSocketHostBuilder(IHostBuilder hostBuilder)
+            : base(hostBuilder)
         {
-            _hostBuilder = new HostBuilder();
+
         }
 
-        public IDictionary<object, object> Properties => _hostBuilder.Properties;
-
-        public virtual IHost Build()
+        public SuperSocketHostBuilder()
+            : this(args: null)
         {
-            return _hostBuilder.ConfigureServices((ctx, services) => 
+
+        }
+
+        public SuperSocketHostBuilder(string[] args)
+            : base(args)
+        {
+
+        }
+
+        public override IHost Build()
+        {
+            return HostBuilder.ConfigureServices((ctx, services) => 
             {
-                // if the package type is StringPackageInfo
-                if (typeof(TReceivePackage) == typeof(StringPackageInfo))
+                RegisterBasicServices(ctx, services, services);
+            }).ConfigureServices((ctx, services) => 
+            {
+                foreach (var action in ConfigureServicesActions)
                 {
-                    services.TryAdd(ServiceDescriptor.Singleton<IPackageDecoder<StringPackageInfo>, DefaultStringPackageDecoder>());
+                    action(ctx, services);
                 }
 
-                services.TryAdd(ServiceDescriptor.Singleton<IChannelCreatorFactory, TcpChannelCreatorFactory>());
-                services.TryAdd(ServiceDescriptor.Singleton<IPackageEncoder<string>, DefaultStringEncoderForDI>());
-
-                // if no host service was defined, just use the default one
-                if (!services.Any(sd => sd.ServiceType == typeof(IHostedService)
-                    && typeof(SuperSocketService<TReceivePackage>).IsAssignableFrom(sd.ImplementationType)))
-                {
-                    RegisterDefaultHostedService(services);
-                }
+                Validator?.Invoke(ctx, services);                
+            }).ConfigureServices((ctx, services) => 
+            {
+                RegisterDefaultServices(ctx, services, services);
             }).Build();
         }
 
-        protected virtual void RegisterDefaultHostedService(IServiceCollection services)
+        protected virtual void RegisterBasicServices(HostBuilderContext builderContext, IServiceCollection servicesInHost, IServiceCollection services)
         {
-            services.AddHostedService<SuperSocketService<TReceivePackage>>();
-        }
+            var serverOptionReader = _serverOptionsReader;
 
-        public IHostBuilder ConfigureAppConfiguration(Action<HostBuilderContext, IConfigurationBuilder> configureDelegate)
-        {
-            _hostBuilder.ConfigureAppConfiguration(configureDelegate);
-            return this;
-        }
-
-        public IHostBuilder ConfigureContainer<TContainerBuilder>(Action<HostBuilderContext, TContainerBuilder> configureDelegate)
-        {
-            _hostBuilder.ConfigureContainer<TContainerBuilder>(configureDelegate);
-            return this;
-        }
-
-        public SuperSocketHostBuilder<TReceivePackage> ConfigureDefaults()
-        {
-            var hostBuilder = this.ConfigureAppConfiguration((hostingContext, config) =>
+            if (serverOptionReader == null)
+            {
+                serverOptionReader = (ctx, config) =>
                 {
-                    var env = hostingContext.HostingEnvironment;
-                    config.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-                          .AddJsonFile($"appsettings.{env.EnvironmentName}.json", optional: true, reloadOnChange: true);
-                });
+                    return config;
+                };
+            }
 
-            return this.ConfigureServices((hostCtx, services) =>
-                {
-                    services.AddOptions();
-                    services.Configure<ServerOptions>(hostCtx.Configuration.GetSection("serverOptions"));
-                });
+            services.AddOptions();
+
+            var config = builderContext.Configuration.GetSection("serverOptions");
+            var serverConfig = serverOptionReader(builderContext, config);
+                                                
+            services.Configure<ServerOptions>(serverConfig);
         }
 
-        public IHostBuilder ConfigureHostConfiguration(Action<IConfigurationBuilder> configureDelegate)
+        protected virtual void RegisterDefaultServices(HostBuilderContext builderContext, IServiceCollection servicesInHost, IServiceCollection services)
         {
-            _hostBuilder.ConfigureHostConfiguration(configureDelegate);
-            return this;
+            // if the package type is StringPackageInfo
+            if (typeof(TReceivePackage) == typeof(StringPackageInfo))
+            {
+                services.TryAdd(ServiceDescriptor.Singleton<IPackageDecoder<StringPackageInfo>, DefaultStringPackageDecoder>());
+            }
+
+            services.TryAdd(ServiceDescriptor.Singleton<IPackageEncoder<string>, DefaultStringEncoderForDI>());
+
+            // if no host service was defined, just use the default one
+            if (!CheckIfExistHostedService(services))
+            {
+                RegisterDefaultHostedService(servicesInHost);
+            }
         }
 
-        IHostBuilder IHostBuilder.ConfigureServices(Action<HostBuilderContext, IServiceCollection> configureDelegate)
+        protected virtual bool CheckIfExistHostedService(IServiceCollection services)
+        {
+            return services.Any(sd => sd.ServiceType == typeof(IHostedService)
+                && typeof(SuperSocketService<TReceivePackage>).IsAssignableFrom(sd.ImplementationType));
+        }
+
+        protected virtual void RegisterDefaultHostedService(IServiceCollection servicesInHost)
+        {
+            servicesInHost.AddHostedService<SuperSocketService<TReceivePackage>>();
+        }
+
+        public ISuperSocketHostBuilder<TReceivePackage> ConfigureServerOptions(Func<HostBuilderContext, IConfiguration, IConfiguration> serverOptionsReader)
+        {
+             _serverOptionsReader = serverOptionsReader;
+             return this;
+        }
+
+        ISuperSocketHostBuilder<TReceivePackage> ISuperSocketHostBuilder<TReceivePackage>.ConfigureServices(Action<HostBuilderContext, IServiceCollection> configureDelegate)
         {
             return ConfigureServices(configureDelegate);
         }
 
-        public SuperSocketHostBuilder<TReceivePackage> ConfigureServices(Action<HostBuilderContext, IServiceCollection> configureDelegate)
+        public override SuperSocketHostBuilder<TReceivePackage> ConfigureServices(Action<HostBuilderContext, IServiceCollection> configureDelegate)
         {
-            _hostBuilder.ConfigureServices(configureDelegate);
+            ConfigureServicesActions.Add(configureDelegate);
             return this;
-        }
+        }        
 
-        public IHostBuilder UseServiceProviderFactory<TContainerBuilder>(IServiceProviderFactory<TContainerBuilder> factory)
-        {
-            _hostBuilder.UseServiceProviderFactory<TContainerBuilder>(factory);
-            return this;
-        }
-
-        public IHostBuilder UseServiceProviderFactory<TContainerBuilder>(Func<HostBuilderContext, IServiceProviderFactory<TContainerBuilder>> factory)
-        {
-            _hostBuilder.UseServiceProviderFactory<TContainerBuilder>(factory);
-            return this;
-        }
-
-        public virtual SuperSocketHostBuilder<TReceivePackage> UsePipelineFilter<TPipelineFilter>()
+        public virtual ISuperSocketHostBuilder<TReceivePackage> UsePipelineFilter<TPipelineFilter>()
             where TPipelineFilter : IPipelineFilter<TReceivePackage>, new()
         {
             return this.ConfigureServices((ctx, services) =>
@@ -118,7 +132,7 @@ namespace SuperSocket
             });
         }
 
-        public virtual SuperSocketHostBuilder<TReceivePackage> UsePipelineFilterFactory<TPipelineFilterFactory>()
+        public virtual ISuperSocketHostBuilder<TReceivePackage> UsePipelineFilterFactory<TPipelineFilterFactory>()
             where TPipelineFilterFactory : class, IPipelineFilterFactory<TReceivePackage>
         {
             return this.ConfigureServices((ctx, services) =>
@@ -127,9 +141,31 @@ namespace SuperSocket
             });
         }
 
-        public virtual SuperSocketHostBuilder<TReceivePackage> UseHostedService<THostedService>()
-            where THostedService : SuperSocketService<TReceivePackage>
+        public virtual ISuperSocketHostBuilder<TReceivePackage> UseSession<TSession>()
+            where TSession : IAppSession
         {
+            return this.UseSessionFactory<GenericSessionFactory<TSession>>();
+        }
+
+        public virtual ISuperSocketHostBuilder<TReceivePackage> UseSessionFactory<TSessionFactory>()
+            where TSessionFactory : class, ISessionFactory
+        {
+            return this.ConfigureServices(
+                (hostCtx, services) =>
+                {
+                    services.AddSingleton<ISessionFactory, TSessionFactory>();
+                }
+            );
+        }
+
+        public virtual ISuperSocketHostBuilder<TReceivePackage> UseHostedService<THostedService>()
+            where THostedService : class, IHostedService
+        {
+            if (!typeof(SuperSocketService<TReceivePackage>).IsAssignableFrom(typeof(THostedService)))
+            {
+                throw new ArgumentException($"The type parameter should be subclass of {nameof(SuperSocketService<TReceivePackage>)}", nameof(THostedService));
+            }
+
             return this.ConfigureServices((ctx, services) =>
             {
                 services.AddHostedService<THostedService>();
@@ -137,7 +173,7 @@ namespace SuperSocket
         }
         
 
-        public virtual SuperSocketHostBuilder<TReceivePackage> UsePackageDecoder<TPackageDecoder>()
+        public virtual ISuperSocketHostBuilder<TReceivePackage> UsePackageDecoder<TPackageDecoder>()
             where TPackageDecoder : class, IPackageDecoder<TReceivePackage>
         {
             return this.ConfigureServices(
@@ -148,26 +184,22 @@ namespace SuperSocket
             );
         }
 
-        public virtual SuperSocketHostBuilder<TReceivePackage> ConfigureErrorHandler(Func<IAppSession, PackageHandlingException<TReceivePackage>, ValueTask<bool>> errorHandler)
+        public virtual ISuperSocketHostBuilder<TReceivePackage> UseMiddleware<TMiddleware>()
+            where TMiddleware : class, IMiddleware
         {
-            return this.ConfigureServices(
-                (hostCtx, services) =>
-                {
-                    services.AddSingleton<Func<IAppSession, PackageHandlingException<TReceivePackage>, ValueTask<bool>>>(errorHandler);
-                }
-            );
+            return this.ConfigureServices((ctx, services) => 
+            {
+                services.TryAddEnumerable(ServiceDescriptor.Singleton<IMiddleware, TMiddleware>());
+            });
         }
 
-        public virtual SuperSocketHostBuilder<TReceivePackage> UsePackageHandler(Func<IAppSession, TReceivePackage, ValueTask> packageHandler, Func<IAppSession, PackageHandlingException<TReceivePackage>, ValueTask<bool>> errorHandler = null)
+        public ISuperSocketHostBuilder<TReceivePackage> UsePackageHandlingScheduler<TPackageHandlingScheduler>()
+            where TPackageHandlingScheduler : class, IPackageHandlingScheduler<TReceivePackage>
         {
             return this.ConfigureServices(
                 (hostCtx, services) =>
                 {
-                    if (packageHandler != null)
-                        services.AddSingleton<IPackageHandler<TReceivePackage>>(new DelegatePackageHandler<TReceivePackage>(packageHandler));
-
-                    if (errorHandler != null)
-                        services.AddSingleton<Func<IAppSession, PackageHandlingException<TReceivePackage>, ValueTask<bool>>>(errorHandler);
+                    services.AddSingleton<IPackageHandlingScheduler<TReceivePackage>, TPackageHandlingScheduler>();
                 }
             );
         }
@@ -175,19 +207,30 @@ namespace SuperSocket
 
     public static class SuperSocketHostBuilder
     {
-        public static SuperSocketHostBuilder<TReceivePackage> Create<TReceivePackage>()
+        public static ISuperSocketHostBuilder<TReceivePackage> Create<TReceivePackage>()
             where TReceivePackage : class
         {
-            return new SuperSocketHostBuilder<TReceivePackage>()
-                .ConfigureDefaults();
+            return Create<TReceivePackage>(args: null);
         }
-        
-        public static SuperSocketHostBuilder<TReceivePackage> Create<TReceivePackage, TPipelineFilter>()
+
+        public static ISuperSocketHostBuilder<TReceivePackage> Create<TReceivePackage>(string[] args)
+            where TReceivePackage : class
+        {
+            return new SuperSocketHostBuilder<TReceivePackage>(args);
+        }
+
+        public static ISuperSocketHostBuilder<TReceivePackage> Create<TReceivePackage, TPipelineFilter>()
             where TReceivePackage : class
             where TPipelineFilter : IPipelineFilter<TReceivePackage>, new()
         {
-            return new SuperSocketHostBuilder<TReceivePackage>()
-                .ConfigureDefaults()
+            return Create<TReceivePackage, TPipelineFilter>(args: null);
+        }
+        
+        public static ISuperSocketHostBuilder<TReceivePackage> Create<TReceivePackage, TPipelineFilter>(string[] args)
+            where TReceivePackage : class
+            where TPipelineFilter : IPipelineFilter<TReceivePackage>, new()
+        {
+            return new SuperSocketHostBuilder<TReceivePackage>(args)
                 .UsePipelineFilter<TPipelineFilter>();
         }
     }

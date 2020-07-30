@@ -40,5 +40,7 @@ namespace SuperSocket
         object this[object name] { get; set; }
 
         SessionState State { get; }
+
+        void Reset();
     }
 }
