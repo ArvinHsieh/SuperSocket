@@ -142,7 +142,7 @@ namespace SuperSocket.Client
             if (socket == null)
                 throw new Exception("Socket is null.");
 
-            var channelOptions = GetChannelOptions();
+            var channelOptions = Options;
             if (options != null)
             {
                 channelOptions.MaxPackageLength = options.MaxPackageLength;

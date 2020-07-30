@@ -20,7 +20,7 @@ namespace SuperSocket.Client
     {
         ValueTask<bool> ConnectAsync(EndPoint remoteEndPoint, CancellationToken cancellationToken = default);
 
-        ValueTask<bool> ConnectAsync(EndPoint remoteEndPoint, ChannelOptions options = default, CancellationToken cancellationToken = default);
+        ValueTask<bool> ConnectAsync(EndPoint remoteEndPoint, ChannelOptions options, CancellationToken cancellationToken = default);
 
         ValueTask<TReceivePackage> ReceiveAsync();
 
