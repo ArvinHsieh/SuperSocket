@@ -13,7 +13,7 @@ using SuperSocket.ProtoBase;
 
 namespace SuperSocket.Server
 {
-    public class SuperSocketService<TReceivePackageInfo> : IHostedService, IServer, IChannelRegister, ILoggerAccessor
+    public class SuperSocketService<TReceivePackageInfo> : IHostedService, IServer, IChannelRegister, ILoggerAccessor, ISessionEventHost
     {
         private readonly IServiceProvider _serviceProvider;
 
@@ -260,9 +260,9 @@ namespace SuperSocket.Server
 
         protected virtual async ValueTask FireSessionConnectedEvent(AppSession session)
         {
-            if (session is IHandshakeRequiredSession hanshakeSession)
+            if (session is IHandshakeRequiredSession handshakeSession)
             {
-                if (!hanshakeSession.Handshaked)
+                if (!handshakeSession.Handshaked)
                     return;
             }
 
@@ -282,9 +282,9 @@ namespace SuperSocket.Server
 
         protected virtual async ValueTask FireSessionClosedEvent(AppSession session)
         {
-            if (session is IHandshakeRequiredSession hanshakeSession)
+            if (session is IHandshakeRequiredSession handshakeSession)
             {
-                if (!hanshakeSession.Handshaked)
+                if (!handshakeSession.Handshaked)
                     return;
             }
 
@@ -300,6 +300,16 @@ namespace SuperSocket.Server
             {
                 _logger.LogError(exc, "There is one exception thrown from the event of OnSessionClosed.");
             }
+        }
+
+        ValueTask ISessionEventHost.HandleSessionConnectedEvent(AppSession session)
+        {
+            return FireSessionConnectedEvent(session);
+        }
+
+        ValueTask ISessionEventHost.HandleSessionClosedEvent(AppSession session)
+        {
+            return FireSessionClosedEvent(session);
         }
 
         private async ValueTask HandleSession(AppSession session, IChannel channel)
@@ -374,7 +384,7 @@ namespace SuperSocket.Server
 
         private async Task StopListener(IChannelCreator listener)
         {
-            await listener.StopAsync();
+            await listener.StopAsync().ConfigureAwait(false);
             _logger.LogInformation($"The listener [{listener}] has been stopped.");
         }
 
@@ -392,7 +402,7 @@ namespace SuperSocket.Server
             var tasks = _channelCreators.Where(l => l.IsRunning).Select(l => StopListener(l))
                 .Union(new Task[] { Task.Run(ShutdownMiddlewares) });
 
-            await Task.WhenAll(tasks);
+            await Task.WhenAll(tasks).ConfigureAwait(false);
 
             try
             {

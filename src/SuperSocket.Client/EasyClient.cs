@@ -1,13 +1,14 @@
 ﻿using System;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using SuperSocket.Channel;
 using SuperSocket.ProtoBase;
 using Microsoft.Extensions.Logging;
-using System.Threading;
-using System.IO;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace SuperSocket.Client
 {
@@ -59,7 +60,7 @@ namespace SuperSocket.Client
         IAsyncEnumerator<TReceivePackage> _packageStream;
 
         public event PackageHandler<TReceivePackage> PackageHandler;
-
+        
         public bool IsConnected
         {
             get
@@ -68,13 +69,17 @@ namespace SuperSocket.Client
             }
         }
 
+        public IPEndPoint LocalEndPoint { get; set; }
+
+        public SecurityOptions Security { get; set; }
+
         protected EasyClient()
         {
 
         }
 
         public EasyClient(IPipelineFilter<TReceivePackage> pipelineFilter)
-            : this(pipelineFilter, new ChannelOptions())
+            : this(pipelineFilter, NullLogger.Instance)
         {
             
         }
@@ -103,10 +108,18 @@ namespace SuperSocket.Client
             return this;
         }
 
-        protected virtual IConnector GetConntector()
+        protected virtual IConnector GetConnector()
         {
-            return new SocketConnector();
-        }        
+            var security = Security;
+
+            if (security != null)
+            {
+                if (security.EnabledSslProtocols != SslProtocols.None)
+                    return new SocketConnector(LocalEndPoint, new SslStreamConnector(security));
+            }
+            
+            return new SocketConnector(LocalEndPoint);
+        }
 
         ValueTask<bool> IEasyClient<TReceivePackage>.ConnectAsync(EndPoint remoteEndPoint, CancellationToken cancellationToken)
         {
@@ -122,7 +135,7 @@ namespace SuperSocket.Client
 
         protected virtual async ValueTask<bool> ConnectAsync(EndPoint remoteEndPoint, ChannelOptions options, CancellationToken cancellationToken)
         {
-            var connector = GetConntector();
+            var connector = GetConnector();
             var state = await connector.ConnectAsync(remoteEndPoint, null, cancellationToken);
 
             if (state.Cancelled || cancellationToken.IsCancellationRequested)
@@ -214,17 +227,17 @@ namespace SuperSocket.Client
 
             while (await enumerator.MoveNextAsync())
             {
-                OnPackageReceived(enumerator.Current);
+                await OnPackageReceived(enumerator.Current);
             }
         }
 
-        private void OnPackageReceived(TReceivePackage package)
+        protected virtual async ValueTask OnPackageReceived(TReceivePackage package)
         {
             var handler = PackageHandler;
 
             try
             {
-                handler.Invoke(this, package);
+                await handler.Invoke(this, package);
             }
             catch (Exception e)
             {
@@ -256,6 +269,11 @@ namespace SuperSocket.Client
             Error?.Invoke(this, new ErrorEventArgs(exception));
 
             Logger?.LogError(exception, message);
+        }
+
+        protected virtual void OnError(string message)
+        {
+            Logger?.LogError(message);
         }
 
         ValueTask IEasyClient<TReceivePackage>.SendAsync(ReadOnlyMemory<byte> data)

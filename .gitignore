@@ -10,4 +10,4 @@ _ReSharper.*
 .DS_Store
 *.nupkg
 *.snupkg
-*.vspscc
+test/SuperSocket.Benchmarks/BenchmarkDotNet.Artifacts

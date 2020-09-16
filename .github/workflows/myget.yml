@@ -1,4 +1,4 @@
-name: MyGet Package Deploy
+name: myget
 
 on:
     push:
@@ -6,29 +6,18 @@ on:
             - master
 
 jobs:
-    build:
+    push:
         runs-on: ubuntu-latest
+        env:
+          DOTNET_CLI_TELEMETRY_OPTOUT: 1
         steps:
             - uses: actions/checkout@v1
             - name: Setup .NET Core
               uses: actions/setup-dotnet@v1
               with:
-                dotnet-version: 3.1.100
-            - name: Build
-              run: dotnet build -c Release
-            - name: Build Samples
-              run: dotnet build -c Release samples/samples.sln
-            - name: Test
-              run: |
-                cd test/Test
-                dotnet test
-    deploy:
-        needs: build
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v1
+                dotnet-version: 3.1.401
             - name: Pack
-              run: dotnet pack -c Release
+              run: dotnet pack -c Release /p:PublicRelease=false
             - uses: dotnet/nbgv@master
               id: nbgv
             - name: Pack all-in-one-packages

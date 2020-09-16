@@ -27,18 +27,18 @@ namespace SuperSocket.WebSocket.Server
 
         public event EventHandler CloseHandshakeStarted;
 
-        internal CloseStatus CloseStatus { get; set; }
+        internal CloseStatus CloseStatus { get; set; }        
 
-        private static readonly IPackageEncoder<WebSocketMessage> _messageEncoder = new WebSocketEncoder();
+        internal IPackageEncoder<WebSocketPackage> MessageEncoder { get; set; }
 
-        public virtual ValueTask SendAsync(WebSocketMessage message)
+        public virtual ValueTask SendAsync(WebSocketPackage message)
         {
-            return this.Channel.SendAsync(_messageEncoder, message);
+            return this.Channel.SendAsync(MessageEncoder, message);
         }
 
         public virtual ValueTask SendAsync(string message)
         {
-            return SendAsync(new WebSocketMessage
+            return SendAsync(new WebSocketPackage
             {
                 OpCode = OpCode.Text,
                 Message = message,
@@ -47,7 +47,7 @@ namespace SuperSocket.WebSocket.Server
 
         public virtual ValueTask SendAsync(ReadOnlyMemory<byte> data)
         {
-            return SendAsync(new WebSocketMessage
+            return SendAsync(new WebSocketPackage
             {
                 OpCode = OpCode.Binary,
                 Data = new ReadOnlySequence<byte>(data),
@@ -87,7 +87,7 @@ namespace SuperSocket.WebSocket.Server
             CloseHandshakeStartTime = DateTime.Now;
             OnCloseHandshakeStarted();
 
-            return SendAsync(new WebSocketMessage
+            return SendAsync(new WebSocketPackage
             {
                 OpCode = OpCode.Close,
                 Data = new ReadOnlySequence<byte>(buffer, 0, length)

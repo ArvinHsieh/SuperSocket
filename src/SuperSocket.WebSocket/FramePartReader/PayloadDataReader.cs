@@ -7,7 +7,7 @@ namespace SuperSocket.WebSocket.FramePartReader
 {
     class PayloadDataReader : PackagePartReader
     {
-        public override bool Process(WebSocketPackage package, ref SequenceReader<byte> reader, out IPackagePartReader<WebSocketPackage> nextPartReader, out bool needMoreData)
+        public override bool Process(WebSocketPackage package, object filterContext, ref SequenceReader<byte> reader, out IPackagePartReader<WebSocketPackage> nextPartReader, out bool needMoreData)
         {
             nextPartReader = null;
 
@@ -28,29 +28,52 @@ namespace SuperSocket.WebSocket.FramePartReader
 
             try
             {
-                if (package.Data.Length == 0)
+                // single fragment
+                if (package.FIN && package.Head == null)
                 {
                     package.Data = seq;
                 }
                 else
                 {
-                    var currentData = package.Data;
-                    package.Data = ConcactSequence(ref currentData, ref seq);
+                    package.ConcatSequence(ref seq);
                 }
 
                 if (package.FIN)
                 {
+                    if (package.Head != null)
+                    {
+                        package.BuildData();
+                    }
+
+                    var websocketFilterContext = filterContext as WebSocketPipelineFilterContext;
+
+                    if (websocketFilterContext != null && websocketFilterContext.Extensions != null && websocketFilterContext.Extensions.Count > 0)
+                    {
+                        foreach (var extension in websocketFilterContext.Extensions)
+                        {
+                            try
+                            {
+                                extension.Decode(package);
+                            }
+                            catch (Exception e)
+                            {
+                                throw new Exception($"Problem happened when decode with the extension {extension.Name}.", e);
+                            }
+                        }
+                    }
+
+                    var data = package.Data;
+
                     if (package.OpCode == OpCode.Text)
                     {
-                        package.Message = package.Data.GetString(Encoding.UTF8);
+                        package.Message = data.GetString(Encoding.UTF8);
                         package.Data = default;
                     }
                     else
                     {
-                        var data = package.Data;
-                        package.Data = CopySequence(ref data);
+                        package.Data = data.CopySequence();
                     }
-
+                    
                     return true;
                 }
                 else
@@ -64,51 +87,6 @@ namespace SuperSocket.WebSocket.FramePartReader
             {
                 reader.Advance(required);
             }
-        }
-
-        private ReadOnlySequence<byte> CopySequence(ref ReadOnlySequence<byte> seq)
-        {
-            SequenceSegment head = null;
-            SequenceSegment tail = null;
-
-            foreach (var segment in seq)
-            {                
-                var newSegment = SequenceSegment.CopyFrom(segment);
-
-                if (head == null)
-                    tail = head = newSegment;
-                else
-                    tail = tail.SetNext(newSegment);
-            }
-
-            return new ReadOnlySequence<byte>(head, 0, tail, tail.Memory.Length);
-        }
-
-        private ReadOnlySequence<byte> ConcactSequence(ref ReadOnlySequence<byte> first, ref ReadOnlySequence<byte> second)
-        {
-            SequenceSegment head = first.Start.GetObject() as SequenceSegment;
-            SequenceSegment tail = first.End.GetObject() as SequenceSegment;
-            
-            if (head == null)
-            {
-                foreach (var segment in first)
-                {                
-                    if (head == null)
-                        tail = head = new SequenceSegment(segment);
-                    else
-                        tail = tail.SetNext(new SequenceSegment(segment));
-                }
-            }
-
-            if (!second.IsEmpty)
-            {
-                foreach (var segment in second)
-                {
-                    tail = tail.SetNext(new SequenceSegment(segment));
-                }
-            }
-
-            return new ReadOnlySequence<byte>(head, 0, tail, tail.Memory.Length);
         }
 
         internal unsafe void DecodeMask(ref ReadOnlySequence<byte> sequence, byte[] mask)

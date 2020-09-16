@@ -6,13 +6,25 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using SuperSocket.Command;
-using SuperSocket.ProtoBase;
 using SuperSocket.Server;
+using SuperSocket.WebSocket.Server.Extensions;
+using SuperSocket.WebSocket.Server.Extensions.Compression;
 
 namespace SuperSocket.WebSocket.Server
 {
     public static class WebSocketServerExtensions
     {
+        internal static ISuperSocketHostBuilder<WebSocketPackage> UseWebSocketMiddleware(this ISuperSocketHostBuilder<WebSocketPackage> builder)
+        {
+            return builder
+                .ConfigureServices((ctx, services) =>
+                {
+                    services.AddSingleton<IWebSocketServerMiddleware, WebSocketServerMiddleware>();
+                })
+                .UseMiddleware<WebSocketServerMiddleware>(s => s.GetService<IWebSocketServerMiddleware>() as WebSocketServerMiddleware)
+                as ISuperSocketHostBuilder<WebSocketPackage>;
+        }
+
         public static ISuperSocketHostBuilder<WebSocketPackage> UseWebSocketMessageHandler(this ISuperSocketHostBuilder<WebSocketPackage> builder, Func<WebSocketSession, WebSocketPackage, ValueTask> handler)
         {
             return builder.ConfigureServices((ctx, services) => 
@@ -67,23 +79,31 @@ namespace SuperSocket.WebSocket.Server
                 var commandOptions = new CommandOptions();                
                 ctx.Configuration?.GetSection("serverOptions")?.GetSection("commands")?.GetSection(protocol)?.Bind(commandOptions);                
                 commandOptionsAction?.Invoke(commandOptions);
-                var commandOptionsWraper = new OptionsWrapper<CommandOptions>(commandOptions);
+                var commandOptionsWrapper = new OptionsWrapper<CommandOptions>(commandOptions);
 
                 services.TryAddEnumerable(ServiceDescriptor.Singleton<ISubProtocolHandler, CommandSubProtocolHandler<TPackageInfo>>((sp) =>
                 {
                     var mapper = ActivatorUtilities.CreateInstance<TPackageMapper>(sp);
-                    return new CommandSubProtocolHandler<TPackageInfo>(protocol, sp, commandOptionsWraper, mapper);
+                    return new CommandSubProtocolHandler<TPackageInfo>(protocol, sp, commandOptionsWrapper, mapper);
                 }));
             }) as ISuperSocketHostBuilder<WebSocketPackage>;
         }
 
+        public static ISuperSocketHostBuilder<WebSocketPackage> UsePerMessageCompression(this ISuperSocketHostBuilder<WebSocketPackage> builder)
+        {
+             return builder.ConfigureServices((ctx, services) =>
+             {
+                 services.TryAddEnumerable(ServiceDescriptor.Singleton<IWebSocketExtensionFactory, WebSocketPerMessageCompressionExtensionFactory>());
+             });
+        }
+
         public static MultipleServerHostBuilder AddWebSocketServer(this MultipleServerHostBuilder hostBuilder, Action<ISuperSocketHostBuilder<WebSocketPackage>> hostBuilderDelegate)
         {
-            return hostBuilder.AddWebSocketServer<WebSocketService>(hostBuilderDelegate);
+            return hostBuilder.AddWebSocketServer<SuperSocketService<WebSocketPackage>>(hostBuilderDelegate);
         }
 
         public static MultipleServerHostBuilder AddWebSocketServer<TWebSocketService>(this MultipleServerHostBuilder hostBuilder, Action<ISuperSocketHostBuilder<WebSocketPackage>> hostBuilderDelegate)
-            where TWebSocketService : WebSocketService
+            where TWebSocketService : SuperSocketService<WebSocketPackage>
         {
             var appHostBuilder = new WebSocketHostBuilderAdapter(hostBuilder);
 
@@ -94,6 +114,11 @@ namespace SuperSocket.WebSocket.Server
 
             hostBuilder.AddServer(appHostBuilder);
             return hostBuilder;
+        }
+
+        public static WebSocketHostBuilder AsWebSocketHostBuilder(this IHostBuilder hostBuilder)
+        {
+            return WebSocketHostBuilder.Create(hostBuilder);
         }
     }
 }

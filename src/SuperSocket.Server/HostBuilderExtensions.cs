@@ -14,9 +14,26 @@ namespace SuperSocket
 {
     public static class HostBuilderExtensions
     {
-        public static ISuperSocketHostBuilder<TReceivePackage> AsSuperSocketBuilder<TReceivePackage>(this IHostBuilder hostBuilder)
+        public static ISuperSocketHostBuilder<TReceivePackage> AsSuperSocketHostBuilder<TReceivePackage>(this IHostBuilder hostBuilder)
         {
-            return hostBuilder as ISuperSocketHostBuilder<TReceivePackage>;
+            if (hostBuilder is ISuperSocketHostBuilder<TReceivePackage> ssHostBuilder)
+            {
+                return ssHostBuilder;
+            }
+
+            return new SuperSocketHostBuilder<TReceivePackage>(hostBuilder);
+        }
+
+        public static ISuperSocketHostBuilder<TReceivePackage> AsSuperSocketHostBuilder<TReceivePackage, TPipelineFilter>(this IHostBuilder hostBuilder)
+            where TPipelineFilter : IPipelineFilter<TReceivePackage>, new()
+        {
+            if (hostBuilder is ISuperSocketHostBuilder<TReceivePackage> ssHostBuilder)
+            {
+                return ssHostBuilder;
+            }
+
+            return (new SuperSocketHostBuilder<TReceivePackage>(hostBuilder))
+                .UsePipelineFilter<TPipelineFilter>();
         }
  
         public static ISuperSocketHostBuilder<TReceivePackage> UsePipelineFilterFactory<TReceivePackage>(this ISuperSocketHostBuilder<TReceivePackage> hostBuilder, Func<object, IPipelineFilter<TReceivePackage>> filterFactory)
@@ -105,6 +122,11 @@ namespace SuperSocket
                         services.AddSingleton<Func<IAppSession, PackageHandlingException<TReceivePackage>, ValueTask<bool>>>(errorHandler);
                 }
             );
+        }
+
+        public static MultipleServerHostBuilder AsMultipleServerHostBuilder(this IHostBuilder hostBuilder)
+        {
+            return new MultipleServerHostBuilder(hostBuilder);
         }
     }
 }

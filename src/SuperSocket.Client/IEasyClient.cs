@@ -24,6 +24,10 @@ namespace SuperSocket.Client
 
         ValueTask<TReceivePackage> ReceiveAsync();
 
+        IPEndPoint LocalEndPoint { get; set; }
+
+        SecurityOptions Security { get; set; }
+
         void StartReceive();
 
         ValueTask SendAsync(ReadOnlyMemory<byte> data);
