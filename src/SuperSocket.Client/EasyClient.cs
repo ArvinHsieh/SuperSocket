@@ -9,6 +9,7 @@ using SuperSocket.Channel;
 using SuperSocket.ProtoBase;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.IO;
 
 namespace SuperSocket.Client
 {
