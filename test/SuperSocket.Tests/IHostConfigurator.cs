@@ -12,9 +12,13 @@ namespace SuperSocket.Tests
 {
     public interface IHostConfigurator
     {
-        void Configure(HostBuilderContext context, IServiceCollection services);
+        void Configure(ISuperSocketHostBuilder hostBuilder);
+
+        Socket CreateClient();
 
         ValueTask<Stream> GetClientStream(Socket socket);
+
+        TextReader GetStreamReader(Stream stream, Encoding encoding);
 
         string WebSocketSchema { get; }
 

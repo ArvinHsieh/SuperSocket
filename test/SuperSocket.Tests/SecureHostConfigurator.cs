@@ -15,17 +15,19 @@ using SuperSocket.ProtoBase;
 
 namespace SuperSocket.Tests
 {
-    public class SecureHostConfigurator : IHostConfigurator
+    public class SecureHostConfigurator : TcpHostConfigurator
     {
-        public string WebSocketSchema => "wss";
-
-        public bool IsSecure => true;
-
-        public ListenOptions Listener { get; private set; }
-
-        public void Configure(HostBuilderContext context, IServiceCollection services)
+        public SecureHostConfigurator()
         {
-            services.Configure<ServerOptions>((options) =>
+            WebSocketSchema = "wss";
+            IsSecure = true;
+        }
+
+        public override void Configure(ISuperSocketHostBuilder hostBuilder)
+        {
+            hostBuilder.ConfigureServices((ctx, services) =>
+            {
+                services.Configure<ServerOptions>((options) =>
                 {
                     var listener = options.Listeners[0];
 
@@ -37,11 +39,12 @@ namespace SuperSocket.Tests
                         FilePath = "supersocket.pfx",
                         Password = "supersocket"
                     };
-                    Listener = listener;
                 });
-        }
+            });
 
-        public async ValueTask<Stream> GetClientStream(Socket socket)
+            base.Configure(hostBuilder);
+        }
+        public override async ValueTask<Stream> GetClientStream(Socket socket)
         {
             var stream = new SslStream(new DerivedNetworkStream(socket), false);
             var options = new SslClientAuthenticationOptions();
@@ -62,7 +65,7 @@ namespace SuperSocket.Tests
             return SslProtocols.Tls13 | SslProtocols.Tls12 | SslProtocols.Tls11;
         }
 
-        public IEasyClient<TPackageInfo> ConfigureEasyClient<TPackageInfo>(IEasyClient<TPackageInfo> client) where TPackageInfo : class
+        public override IEasyClient<TPackageInfo> ConfigureEasyClient<TPackageInfo>(IEasyClient<TPackageInfo> client) where TPackageInfo : class
         {
             client.Security = new SecurityOptions
             {

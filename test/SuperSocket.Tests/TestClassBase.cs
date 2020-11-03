@@ -73,13 +73,10 @@ namespace SuperSocket.Tests
 
         protected Socket CreateClient(IHostConfigurator hostConfigurator)
         {
-            var serverAddress = hostConfigurator.GetServerEndPoint();
-            var socket = new Socket(serverAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-            socket.Connect(serverAddress);
-            return socket;
+            return hostConfigurator.CreateClient();
         }
 
-        protected IHostBuilder Configure(IHostBuilder hostBuilder, IHostConfigurator configurator = null)
+        protected ISuperSocketHostBuilder Configure(ISuperSocketHostBuilder hostBuilder, IHostConfigurator configurator = null)
         {
             var builder = hostBuilder.ConfigureAppConfiguration((hostCtx, configApp) =>
                 {
@@ -99,16 +96,10 @@ namespace SuperSocket.Tests
                 .ConfigureServices((hostCtx, services) =>
                 {
                     ConfigureServices(hostCtx, services);
-                });
+                }) as ISuperSocketHostBuilder;
             
-            if (configurator != null)
-            {
-                builder = builder.ConfigureServices((ctx, services) =>
-                {
-                    configurator.Configure(ctx, services);
-                });
-            }
-
+            configurator?.Configure(builder);
+            
             return builder;
         }
     }

@@ -24,7 +24,11 @@ namespace SuperSocket.Server
 
         void IAppSession.Initialize(IServerInfo server, IChannel channel)
         {
-            SessionID = Guid.NewGuid().ToString();
+            if (channel is IChannelWithSessionIdentifier channelWithSessionIdentifier)
+                SessionID = channelWithSessionIdentifier.SessionIdentifier;
+            else                
+                SessionID = Guid.NewGuid().ToString();
+            
             Server = server;
             StartTime = DateTimeOffset.Now;
             _channel = channel;
@@ -65,7 +69,7 @@ namespace SuperSocket.Server
 
         public event AsyncEventHandler Connected;
 
-        public event AsyncEventHandler Closed;
+        public event AsyncEventHandler<CloseEventArgs> Closed;
         
         private Dictionary<object, object> _items;
 
@@ -100,12 +104,12 @@ namespace SuperSocket.Server
             }
         }
 
-        protected virtual ValueTask OnSessionClosedAsync(EventArgs e)
+        protected virtual ValueTask OnSessionClosedAsync(CloseEventArgs e)
         {
             return new ValueTask();
         }
 
-        internal async ValueTask FireSessionClosedAsync(EventArgs e)
+        internal async ValueTask FireSessionClosedAsync(CloseEventArgs e)
         {
             State = SessionState.Closed;
 
@@ -116,7 +120,7 @@ namespace SuperSocket.Server
             if (closeEventHandler == null)
                 return;
 
-             await closeEventHandler.Invoke(this, EventArgs.Empty);
+             await closeEventHandler.Invoke(this, e);
         }
 
 
@@ -168,18 +172,24 @@ namespace SuperSocket.Server
 
         }
 
-        private void ClearEvent(ref AsyncEventHandler sessionEvent)
+        private void ClearEvent<TEventHandler>(ref TEventHandler sessionEvent)
+            where TEventHandler : Delegate
         {
             if (sessionEvent == null)
                 return;
 
             foreach (var handler in sessionEvent.GetInvocationList())
             {
-                sessionEvent -= (AsyncEventHandler)handler;
+                sessionEvent = Delegate.Remove(sessionEvent, handler) as TEventHandler;
             }
         }
 
         public virtual async ValueTask CloseAsync()
+        {
+            await CloseAsync(CloseReason.LocalClosing);
+        }
+
+        public virtual async ValueTask CloseAsync(CloseReason reason)
         {
             var channel = Channel;
 
@@ -188,7 +198,7 @@ namespace SuperSocket.Server
             
             try
             {
-                await channel.CloseAsync();
+                await channel.CloseAsync(reason);
             }
             catch
             {

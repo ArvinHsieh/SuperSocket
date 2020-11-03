@@ -12,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using SuperSocket;
 using System.Linq;
 using System.Reflection;
+using SuperSocket.Channel;
 
 namespace SuperSocket.Tests
 {
@@ -25,7 +26,6 @@ namespace SuperSocket.Tests
         }
 
         [Fact]
-        [Trait("Category", "TestSessionEvents")]
         public async Task TestSessionEvents() 
         {
             var hostConfigurator = new RegularHostConfigurator();
@@ -59,6 +59,12 @@ namespace SuperSocket.Tests
                     return new ValueTask();
                 };
 
+                session.Connected += async (s, e) =>
+                {
+                    OutputHelper.WriteLine("Session.Connected event was triggered");
+                    await Task.CompletedTask;
+                };
+
                 var itemKey = "GirlFriend";
                 var itemValue = "Who?";
 
@@ -77,6 +83,7 @@ namespace SuperSocket.Tests
                 Assert.Equal(itemValue, session[itemKey]);
 
                 Assert.Equal(1, GetEventInvocationCount(session, nameof(session.Closed)));
+                Assert.Equal(1, GetEventInvocationCount(session, nameof(session.Connected)));
 
                 session.Reset();
 
@@ -85,6 +92,7 @@ namespace SuperSocket.Tests
                 Assert.Equal(SessionState.None, session.State);
                 Assert.Null(session[itemKey]);
                 Assert.Equal(0, GetEventInvocationCount(session, nameof(session.Closed)));
+                Assert.Equal(0, GetEventInvocationCount(session, nameof(session.Connected)));
 
                 await server.StopAsync();
             }            
@@ -103,6 +111,70 @@ namespace SuperSocket.Tests
                 return 0;
 
             return handler.GetInvocationList().Length;
+        }
+
+        [Fact]
+        public async Task TestCloseReason() 
+        {
+            var hostConfigurator = new RegularHostConfigurator();
+            IAppSession session = null;
+
+            using (var server = CreateSocketServerBuilder<TextPackageInfo, LinePipelineFilter>(hostConfigurator)
+                .UseSessionHandler((s) =>
+                {
+                    session = s;
+                    return new ValueTask();
+                })
+                .BuildAsServer())
+            {
+                Assert.Equal("TestServer", server.Name);
+
+                Assert.True(await server.StartAsync());
+                OutputHelper.WriteLine("Started.");
+
+                CloseReason closeReason = CloseReason.Unknown;
+
+                var client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                await client.ConnectAsync(hostConfigurator.GetServerEndPoint());
+                OutputHelper.WriteLine("Connected.");
+
+                await Task.Delay(1000);
+
+                session.Closed += (s, e) =>
+                {
+                    closeReason = e.Reason;
+                    return new ValueTask();
+                };
+
+                client.Shutdown(SocketShutdown.Both);
+                client.Close();
+
+                await Task.Delay(1000);
+
+                Assert.Equal(SessionState.Closed, session.State);
+                Assert.Equal(CloseReason.RemoteClosing, closeReason);
+
+                closeReason = CloseReason.Unknown;
+
+                client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                await client.ConnectAsync(hostConfigurator.GetServerEndPoint());
+                OutputHelper.WriteLine("Connected.");
+
+                await Task.Delay(1000);
+
+                session.Closed += (s, e) =>
+                {
+                    closeReason = e.Reason;
+                    return new ValueTask();
+                };
+
+                await session.CloseAsync(CloseReason.LocalClosing);
+                await Task.Delay(1000);
+                Assert.Equal(SessionState.Closed, session.State);
+                Assert.Equal(CloseReason.LocalClosing, closeReason);
+
+                await server.StopAsync();
+            }
         }
 
         [Fact]

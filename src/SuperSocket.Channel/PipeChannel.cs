@@ -113,16 +113,17 @@ namespace SuperSocket.Channel
             }
             finally
             {
-                if (!_isDetaching)
+                if (!_isDetaching && !IsClosed)
                     OnClosed();
             }
         }
 
         protected abstract void Close();
 
-        public override async ValueTask CloseAsync()
+        public override async ValueTask CloseAsync(CloseReason closeReason)
         {
-            Close();
+            CloseReason = closeReason;
+            Close();            
             _cts.Cancel();
             await HandleClosing();
         }
@@ -166,6 +167,9 @@ namespace SuperSocket.Channel
 
                     if (bytesRead == 0)
                     {
+                        if (!CloseReason.HasValue)
+                            CloseReason = Channel.CloseReason.RemoteClosing;
+                        
                         break;
                     }
 
@@ -177,7 +181,19 @@ namespace SuperSocket.Channel
                 catch (Exception e)
                 {
                     if (!IsIgnorableException(e))
+                    {
                         OnError("Exception happened in ReceiveAsync", e);
+
+                        if (!CloseReason.HasValue)
+                        {
+                            CloseReason = cts.IsCancellationRequested
+                                ? Channel.CloseReason.LocalClosing : Channel.CloseReason.SocketError; 
+                        }
+                    }
+                    else if (!CloseReason.HasValue)
+                    {
+                        CloseReason = Channel.CloseReason.RemoteClosing;
+                    }
                     
                     break;
                 }
@@ -410,7 +426,7 @@ namespace SuperSocket.Channel
             WriteEOFPackage();
         }
 
-        private void WriteEOFPackage()
+        protected void WriteEOFPackage()
         {
             _packagePipe.Write(default);
         }

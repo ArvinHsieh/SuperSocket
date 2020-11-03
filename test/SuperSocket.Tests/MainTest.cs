@@ -19,6 +19,11 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Security.Authentication;
 
+/// <summary>
+/// Run selected test case by command
+/// dotnet test --filter 'FullyQualifiedName=SuperSocket.Tests.SessionTest.TestCloseReason'
+/// </summary>
+
 namespace SuperSocket.Tests
 {
     [Trait("Category", "Basic")]
@@ -140,20 +145,28 @@ namespace SuperSocket.Tests
             }            
         }
 
-        [Fact]
-        public async Task TestSessionHandlers() 
+        [Theory]
+        [InlineData(typeof(RegularHostConfigurator))]
+        [InlineData(typeof(UdpHostConfigurator))]
+        public async Task TestSessionHandlers(Type hostConfiguratorType) 
         {
             var connected = false;
+            var hostConfigurator = CreateObject<IHostConfigurator>(hostConfiguratorType);
 
-            using (var server = CreateSocketServerBuilder<TextPackageInfo, LinePipelineFilter>()
+            using (var server = CreateSocketServerBuilder<TextPackageInfo, LinePipelineFilter>(hostConfigurator)
                 .UseSessionHandler((s) =>
                 {
                     connected = true;
                     return new ValueTask();
-                }, (s) =>
+                }, (s, e) =>
                 {
                     connected = false;
                     return new ValueTask();
+                })
+                .UsePackageHandler(async (s, p) =>
+                {
+                    if (p.Text == "CLOSE")
+                        await s.CloseAsync(Channel.CloseReason.LocalClosing);            
                 }).BuildAsServer())
             {
                 Assert.Equal("TestServer", server.Name);
@@ -161,18 +174,41 @@ namespace SuperSocket.Tests
                 Assert.True(await server.StartAsync());
                 OutputHelper.WriteLine("Started.");
 
-                var client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                await client.ConnectAsync(GetDefaultServerEndPoint());
+                var client = hostConfigurator.CreateClient();
+                var outputStream = default(Stream);
+
+                if (hostConfigurator is UdpHostConfigurator)
+                {                    
+                    var buffer = Encoding.ASCII.GetBytes("HELLO\r\n");
+                    outputStream = await hostConfigurator.GetClientStream(client);
+                    outputStream.Write(buffer, 0, buffer.Length);
+                    outputStream.Flush();
+                }
+
                 OutputHelper.WriteLine("Connected.");
 
                 await Task.Delay(1000);
 
                 Assert.True(connected);
 
-                client.Shutdown(SocketShutdown.Both);
-                client.Close();
+                if (outputStream != null)
+                {                    
+                    var buffer = Encoding.ASCII.GetBytes("CLOSE\r\n");
+                    outputStream.Write(buffer, 0, buffer.Length);
+                    outputStream.Flush();
+                }
+                else
+                {
+                    client.Shutdown(SocketShutdown.Both);
+                    client.Close();
+                }                
 
                 await Task.Delay(1000);
+
+                if (outputStream != null)
+                {
+                    client.Close();
+                }
 
                 Assert.False(connected);
 
@@ -190,7 +226,7 @@ namespace SuperSocket.Tests
                 {
                     connected = true;
                     return new ValueTask();
-                }, (s) =>
+                }, (s, e) =>
                 {
                     connected = false;
                     return new ValueTask();
@@ -235,7 +271,7 @@ namespace SuperSocket.Tests
                 {
                     connected = true;
                     await Task.CompletedTask;
-                }, async (s) =>
+                }, async (s, e) =>
                 {
                     connected = false;                    
                     await Task.CompletedTask;

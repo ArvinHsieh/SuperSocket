@@ -40,7 +40,8 @@ namespace SuperSocket.Server
         private IChannelCreatorFactory _channelCreatorFactory;
         private List<IChannelCreator> _channelCreators;
         private IPackageHandlingScheduler<TReceivePackageInfo> _packageHandlingScheduler;
-        
+        private IPackageHandlingContextAccessor<TReceivePackageInfo> _packageHandlingContextAccessor;
+
         public string Name { get; }
 
         private int _sessionCount;
@@ -82,10 +83,10 @@ namespace SuperSocket.Server
             _loggerFactory = serviceProvider.GetService<ILoggerFactory>();
             _logger = _loggerFactory.CreateLogger("SuperSocketService");
             _channelCreatorFactory = serviceProvider.GetService<IChannelCreatorFactory>() ?? new TcpChannelCreatorFactory(serviceProvider);
-            _sessionHandlers = serviceProvider.GetService<SessionHandlers>();          
+            _sessionHandlers = serviceProvider.GetService<SessionHandlers>();
             // initialize session factory
             _sessionFactory = serviceProvider.GetService<ISessionFactory>() ?? new DefaultSessionFactory();
-
+            _packageHandlingContextAccessor = serviceProvider.GetService<IPackageHandlingContextAccessor<TReceivePackageInfo>>();
             InitializeMiddlewares();
 
             var packageHandler = serviceProvider.GetService<IPackageHandler<TReceivePackageInfo>>()
@@ -126,10 +127,10 @@ namespace SuperSocket.Server
                 {
                     m.Shutdown(this);
                 }
-                catch(Exception e)
+                catch (Exception e)
                 {
                     _logger.LogError(e, $"The exception was thrown from the middleware {m.GetType().Name} when it is being shutdown.");
-                }                
+                }
             }
         }
 
@@ -248,12 +249,12 @@ namespace SuperSocket.Server
             return new ValueTask();
         }
 
-        protected virtual ValueTask OnSessionClosedAsync(IAppSession session)
+        protected virtual ValueTask OnSessionClosedAsync(IAppSession session, CloseEventArgs e)
         {
             var closedHandler = _sessionHandlers?.Closed;
 
             if (closedHandler != null)
-                return closedHandler.Invoke(session);
+                return closedHandler.Invoke(session, e);
 
             return new ValueTask();
         }
@@ -280,7 +281,7 @@ namespace SuperSocket.Server
             }
         }
 
-        protected virtual async ValueTask FireSessionClosedEvent(AppSession session)
+        protected virtual async ValueTask FireSessionClosedEvent(AppSession session, CloseReason reason)
         {
             if (session is IHandshakeRequiredSession handshakeSession)
             {
@@ -288,13 +289,15 @@ namespace SuperSocket.Server
                     return;
             }
 
-            _logger.LogInformation($"The session disconnected: {session.SessionID}");
+            _logger.LogInformation($"The session disconnected: {session.SessionID} ({reason})");
 
             try
             {
                 Interlocked.Decrement(ref _sessionCount);
-                await session.FireSessionClosedAsync(EventArgs.Empty);
-                await OnSessionClosedAsync(session); 
+
+                var closeEventArgs = new CloseEventArgs(reason);
+                await session.FireSessionClosedAsync(closeEventArgs);
+                await OnSessionClosedAsync(session, closeEventArgs);
             }
             catch (Exception exc)
             {
@@ -307,9 +310,9 @@ namespace SuperSocket.Server
             return FireSessionConnectedEvent(session);
         }
 
-        ValueTask ISessionEventHost.HandleSessionClosedEvent(AppSession session)
+        ValueTask ISessionEventHost.HandleSessionClosedEvent(AppSession session, CloseReason reason)
         {
-            return FireSessionClosedEvent(session);
+            return FireSessionClosedEvent(session, reason);
         }
 
         private async ValueTask HandleSession(AppSession session, IChannel channel)
@@ -320,7 +323,7 @@ namespace SuperSocket.Server
             try
             {
                 channel.Start();
-                
+
                 await FireSessionConnectedEvent(session);
 
                 var packageChannel = channel as IChannel<TReceivePackageInfo>;
@@ -328,7 +331,11 @@ namespace SuperSocket.Server
 
                 await foreach (var p in packageChannel.RunAsync())
                 {
-                    await packageHandlingScheduler.HandlePackage(session, p);   
+                    if(_packageHandlingContextAccessor!=null)
+                    {
+                        _packageHandlingContextAccessor.PackageHandlingContext = new PackageHandlingContext<IAppSession, TReceivePackageInfo>(session, p);
+                    }
+                    await packageHandlingScheduler.HandlePackage(session, p);
                 }
             }
             catch (Exception e)
@@ -337,7 +344,8 @@ namespace SuperSocket.Server
             }
             finally
             {
-                await FireSessionClosedEvent(session);
+                var closeReason = channel.CloseReason.HasValue ? channel.CloseReason.Value : CloseReason.Unknown;
+                await FireSessionClosedEvent(session, closeReason);
             }
         }
 
@@ -366,7 +374,7 @@ namespace SuperSocket.Server
             {
                 await OnStartedAsync();
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 _logger.LogError(e, "There is one exception thrown from the method OnStartedAsync().");
             }
