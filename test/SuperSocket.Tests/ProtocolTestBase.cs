@@ -80,6 +80,7 @@ namespace SuperSocket.Tests
                             var sendingLine = CreateRequest(line);
                             writer.Write(sendingLine.Substring(0, sendingLine.Length / 2));
                             writer.Flush();
+                            await hostConfigurator.KeepSequence();
                         }
                     }
                 }
@@ -114,6 +115,7 @@ namespace SuperSocket.Tests
                             writer.Write(request[i]);
                             writer.Flush();
                             Thread.Sleep(50);
+                            await hostConfigurator.KeepSequence();
                         }
 
                         var receivedLine = reader.ReadLine();
@@ -153,9 +155,11 @@ namespace SuperSocket.Tests
                             lines[i] = line;
                             var request = CreateRequest(line);
                             writer.Write(request);
+                            await hostConfigurator.KeepSequence();
                         }
 
                         writer.Flush();
+                        await hostConfigurator.KeepSequence();
 
                         for (var i = 0; i < size; i++)
                         {
@@ -227,6 +231,7 @@ namespace SuperSocket.Tests
                             var r = rounds[i];
                             writer.Write(source.Substring(r.Key, r.Value));
                             writer.Flush();
+                            await hostConfigurator.KeepSequence();
                         }
 
                         for (var i = 0; i < size; i++)

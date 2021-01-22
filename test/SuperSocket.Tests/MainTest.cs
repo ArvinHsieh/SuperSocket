@@ -73,6 +73,26 @@ namespace SuperSocket.Tests
             }
         }
 
+        [Fact]
+        public void TestCustomConfigOptions() 
+        {
+            var hostConfigurator = new RegularHostConfigurator();
+            var propName = "testPropName";
+            var propValue = "testPropValue";
+
+            using (var server = CreateSocketServerBuilder<TextPackageInfo, LinePipelineFilter>(hostConfigurator)
+                .ConfigureAppConfiguration((HostBuilder, configBuilder) =>
+                    {
+                        configBuilder.AddInMemoryCollection(new Dictionary<string, string>
+                        {
+                            { $"serverOptions:values:{propName}", propValue }
+                        });
+                    }).BuildAsServer())
+            {
+                Assert.Equal(propValue, server.Options.Values[propName]);
+            }
+        }
+
         [Theory]
         [InlineData("Tls11", SslProtocols.Tls11, false)]
         [InlineData("Tls12", SslProtocols.Tls12, false)]
@@ -213,7 +233,7 @@ namespace SuperSocket.Tests
                 Assert.False(connected);
 
                 await server.StopAsync();
-            }            
+            }
         }
 
         [Fact]
@@ -341,6 +361,74 @@ namespace SuperSocket.Tests
                 }
 
                 await server.StopAsync();
+            }
+        }
+
+        [Theory]
+        [InlineData(typeof(RegularHostConfigurator))]
+        [InlineData(typeof(SecureHostConfigurator))]
+        public async Task TestCloseAfterSend(Type hostConfiguratorType)
+        {
+            var hostConfigurator = CreateObject<IHostConfigurator>(hostConfiguratorType);
+            using (var server = CreateSocketServerBuilder<TextPackageInfo, LinePipelineFilter>(hostConfigurator)
+                .UsePackageHandler(async (IAppSession s, TextPackageInfo p) =>
+                {
+                    await s.SendAsync(Utf8Encoding.GetBytes("Hello World\r\n"));
+                    await s.CloseAsync(Channel.CloseReason.LocalClosing);
+                }).BuildAsServer() as IServer)
+            {            
+                Assert.True(await server.StartAsync());
+                Assert.Equal(0, server.SessionCount);
+
+                var client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                await client.ConnectAsync(hostConfigurator.GetServerEndPoint());                
+                using (var stream = await hostConfigurator.GetClientStream(client))
+                using (var streamReader = new StreamReader(stream, Utf8Encoding, true))
+                using (var streamWriter = new StreamWriter(stream, Utf8Encoding, 1024 * 1024 * 4))
+                {
+                    await streamWriter.WriteAsync("Hello World\r\n");
+                    await streamWriter.FlushAsync();
+                    var line = await streamReader.ReadLineAsync();
+                    Assert.Equal("Hello World", line);
+                }
+
+                await server.StopAsync();
+            }
+        }
+
+        [Theory]
+        [InlineData(typeof(RegularHostConfigurator))]
+        [InlineData(typeof(SecureHostConfigurator))]
+        [InlineData(typeof(UdpHostConfigurator))]
+        public async Task TestMultipleHostStartup(Type hostConfiguratorType)
+        {
+            var hostConfigurator = CreateObject<IHostConfigurator>(hostConfiguratorType);
+
+            var hostBuilder = MultipleServerHostBuilder.Create()
+                .ConfigureAppConfiguration((hostingContext, config) =>
+                {
+                    config.Sources.Clear();
+                    config.AddJsonFile("Config/multiple_server.json", optional: false, reloadOnChange: true);
+                })
+                .AddServer<TextPackageInfo, LinePipelineFilter>(builder =>
+                {
+                    hostConfigurator.Configure(builder);
+
+                    builder
+                        .ConfigureServerOptions((ctx, config) =>
+                        {
+                            return config.GetSection("TestServer1");
+                        })
+                        .UsePackageHandler(async (IAppSession s, TextPackageInfo p) =>
+                        {
+                            await s.SendAsync(Utf8Encoding.GetBytes("Hello World\r\n"));
+                        });
+                });
+
+            using(var host = hostBuilder.Build())
+            {
+                await host.StartAsync();
+                await host.StopAsync();
             }
         }
 
